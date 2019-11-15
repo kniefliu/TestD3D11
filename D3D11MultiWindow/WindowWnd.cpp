@@ -164,6 +164,11 @@ void CWindowWnd::SetIcon(UINT nRes)
 	::SendMessage(m_hWnd, WM_SETICON, (WPARAM) FALSE, (LPARAM) hIcon);
 }
 
+void CWindowWnd::Resize(int cx, int cy)
+{
+	ResizeClient(cx, cy);
+}
+
 bool CWindowWnd::RegisterWindowClass()
 {
 	WNDCLASS wc = { 0 };

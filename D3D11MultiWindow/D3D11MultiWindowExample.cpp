@@ -1,6 +1,6 @@
 #include <Windows.h>
 
-#include "D3D11BaseWindow.h"
+#include "GDIBaseWindow.h"
 
 int APIENTRY WinMain(HINSTANCE hInstance,
 	HINSTANCE hPrevInstance,
@@ -10,8 +10,8 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
-	D3D11BaseWindow* window = new D3D11BaseWindow();
-	window->Create(NULL, L"D3D11Window", UI_WNDSTYLE_FRAME, 0);
+	GDIBaseWindow* window = new GDIBaseWindow();
+	window->Create(NULL, L"GDIWindow", UI_WNDSTYLE_FRAME, 0);
 	CWindowWnd::MessageLoop();
 
 	return 0;

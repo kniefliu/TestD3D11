@@ -34,6 +34,8 @@ public:
 	void CenterWindow();
 	void SetIcon(UINT nRes);
 
+	void Resize(int cx, int cy);
+
 public:
 	static void MessageLoop();
 	static HINSTANCE GetResourceInstance();

@@ -71,6 +71,8 @@ HRESULT CompileShaderFromFile(const WCHAR* szFileName, LPCSTR szEntryPoint, LPCS
 
 D3D11BaseWindow::D3D11BaseWindow()
 	: g_vMeshColor(0.7f, 0.7f, 0.7f, 1.0f)
+	, m_iLastWidth(0)
+	, m_iLastHeight(0)
 {
 
 }
@@ -92,6 +94,15 @@ LRESULT D3D11BaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		InitDevice();
 		::SetTimer(m_hWnd, kRenderTimerID, 15, 0);
 		break;
+	}
+	case WM_SIZE:
+	{
+		InitDevice();
+		break;
+	}
+	case WM_ERASEBKGND:
+	{
+		return 1;
 	}
 	case WM_PAINT:
 	{
@@ -134,49 +145,55 @@ HRESULT D3D11BaseWindow::InitDevice()
 	UINT width = rc.right - rc.left;
 	UINT height = rc.bottom - rc.top;
 
-	UINT createDeviceFlags = 0;
+	if (m_iLastWidth == width && m_iLastHeight == height) {
+		return hr;
+	}
+
+	if (!g_pd3dDevice) {
+		UINT createDeviceFlags = 0;
 #ifdef _DEBUG
-	//createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
+		//createDeviceFlags |= D3D11_CREATE_DEVICE_DEBUG;
 #endif
 
-	D3D_DRIVER_TYPE driverTypes[] =
-	{
-		D3D_DRIVER_TYPE_HARDWARE,
-		D3D_DRIVER_TYPE_WARP,
-		D3D_DRIVER_TYPE_REFERENCE,
-	};
-	UINT numDriverTypes = ARRAYSIZE(driverTypes);
-
-	D3D_FEATURE_LEVEL featureLevels[] =
-	{
-		D3D_FEATURE_LEVEL_11_1,
-		D3D_FEATURE_LEVEL_11_0,
-		D3D_FEATURE_LEVEL_10_1,
-		D3D_FEATURE_LEVEL_10_0,
-	};
-	UINT numFeatureLevels = ARRAYSIZE(featureLevels);
-
-	for (UINT driverTypeIndex = 0; driverTypeIndex < numDriverTypes; driverTypeIndex++)
-	{
-		g_driverType = driverTypes[driverTypeIndex];
-		hr = D3D11CreateDevice(nullptr, g_driverType, nullptr, createDeviceFlags, featureLevels, numFeatureLevels,
-			D3D11_SDK_VERSION, &g_pd3dDevice, &g_featureLevel, &g_pImmediateContext);
-
-		if (hr == E_INVALIDARG)
+		D3D_DRIVER_TYPE driverTypes[] =
 		{
-			// DirectX 11.0 platforms will not recognize D3D_FEATURE_LEVEL_11_1 so we need to retry without it
-			hr = D3D11CreateDevice(nullptr, g_driverType, nullptr, createDeviceFlags, &featureLevels[1], numFeatureLevels - 1,
-				D3D11_SDK_VERSION, &g_pd3dDevice, &g_featureLevel, &g_pImmediateContext);
-		}
+			D3D_DRIVER_TYPE_HARDWARE,
+			D3D_DRIVER_TYPE_WARP,
+			D3D_DRIVER_TYPE_REFERENCE,
+		};
+		UINT numDriverTypes = ARRAYSIZE(driverTypes);
 
-		if (SUCCEEDED(hr))
-			break;
+		D3D_FEATURE_LEVEL featureLevels[] =
+		{
+			D3D_FEATURE_LEVEL_11_1,
+			D3D_FEATURE_LEVEL_11_0,
+			D3D_FEATURE_LEVEL_10_1,
+			D3D_FEATURE_LEVEL_10_0,
+		};
+		UINT numFeatureLevels = ARRAYSIZE(featureLevels);
+
+		for (UINT driverTypeIndex = 0; driverTypeIndex < numDriverTypes; driverTypeIndex++)
+		{
+			g_driverType = driverTypes[driverTypeIndex];
+			hr = D3D11CreateDevice(nullptr, g_driverType, nullptr, createDeviceFlags, featureLevels, numFeatureLevels,
+				D3D11_SDK_VERSION, &g_pd3dDevice, &g_featureLevel, &g_pImmediateContext);
+
+			if (hr == E_INVALIDARG)
+			{
+				// DirectX 11.0 platforms will not recognize D3D_FEATURE_LEVEL_11_1 so we need to retry without it
+				hr = D3D11CreateDevice(nullptr, g_driverType, nullptr, createDeviceFlags, &featureLevels[1], numFeatureLevels - 1,
+					D3D11_SDK_VERSION, &g_pd3dDevice, &g_featureLevel, &g_pImmediateContext);
+			}
+
+			if (SUCCEEDED(hr))
+				break;
+		}
+		if (FAILED(hr))
+			return hr;
 	}
-	if (FAILED(hr))
-		return hr;
 
 	// Obtain DXGI factory from device (since we used nullptr for pAdapter above)
-	IDXGIFactory1* dxgiFactory = nullptr;
+	if (!m_pDxgiFactory)
 	{
 		IDXGIDevice* dxgiDevice = nullptr;
 		hr = g_pd3dDevice->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice));
@@ -186,27 +203,40 @@ HRESULT D3D11BaseWindow::InitDevice()
 			hr = dxgiDevice->GetAdapter(&adapter);
 			if (SUCCEEDED(hr))
 			{
-				hr = adapter->GetParent(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&dxgiFactory));
+				hr = adapter->GetParent(__uuidof(IDXGIFactory1), reinterpret_cast<void**>(&m_pDxgiFactory));
 				adapter->Release();
 			}
 			dxgiDevice->Release();
 		}
+
+		if (FAILED(hr))
+			return hr;
+
+		// Create swap chain
+		hr = m_pDxgiFactory->QueryInterface(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(&m_pDxgiFactory2));
+		if (m_pDxgiFactory2)
+		{
+			// DirectX 11.1 or later
+			hr = g_pd3dDevice->QueryInterface(__uuidof(ID3D11Device1), reinterpret_cast<void**>(&g_pd3dDevice1));
+			if (SUCCEEDED(hr))
+			{
+				(void)g_pImmediateContext->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&g_pImmediateContext1));
+			}
+		}
+		// Note this tutorial doesn't handle full-screen swapchains so we block the ALT+ENTER shortcut
+		m_pDxgiFactory->MakeWindowAssociation(m_hWnd, DXGI_MWA_NO_ALT_ENTER);
 	}
 	if (FAILED(hr))
 		return hr;
-
-	// Create swap chain
-	IDXGIFactory2* dxgiFactory2 = nullptr;
-	hr = dxgiFactory->QueryInterface(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(&dxgiFactory2));
-	if (dxgiFactory2)
-	{
-		// DirectX 11.1 or later
-		hr = g_pd3dDevice->QueryInterface(__uuidof(ID3D11Device1), reinterpret_cast<void**>(&g_pd3dDevice1));
-		if (SUCCEEDED(hr))
-		{
-			(void)g_pImmediateContext->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&g_pImmediateContext1));
-		}
-
+	if (g_pSwapChain1) {
+		g_pSwapChain1->Release();
+		g_pSwapChain1 = nullptr;
+	}
+	if (g_pSwapChain) {
+		g_pSwapChain->Release();
+		g_pSwapChain = nullptr;
+	}
+	if (m_pDxgiFactory2) {
 		DXGI_SWAP_CHAIN_DESC1 sd = {};
 		sd.Width = width;
 		sd.Height = height;
@@ -216,13 +246,11 @@ HRESULT D3D11BaseWindow::InitDevice()
 		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 		sd.BufferCount = 1;
 
-		hr = dxgiFactory2->CreateSwapChainForHwnd(g_pd3dDevice, m_hWnd, &sd, nullptr, nullptr, &g_pSwapChain1);
+		hr = m_pDxgiFactory2->CreateSwapChainForHwnd(g_pd3dDevice, m_hWnd, &sd, nullptr, nullptr, &g_pSwapChain1);
 		if (SUCCEEDED(hr))
 		{
 			hr = g_pSwapChain1->QueryInterface(__uuidof(IDXGISwapChain), reinterpret_cast<void**>(&g_pSwapChain));
 		}
-
-		dxgiFactory2->Release();
 	}
 	else
 	{
@@ -240,16 +268,16 @@ HRESULT D3D11BaseWindow::InitDevice()
 		sd.SampleDesc.Quality = 0;
 		sd.Windowed = TRUE;
 
-		hr = dxgiFactory->CreateSwapChain(g_pd3dDevice, &sd, &g_pSwapChain);
+		hr = m_pDxgiFactory->CreateSwapChain(g_pd3dDevice, &sd, &g_pSwapChain);
 	}
-
-	// Note this tutorial doesn't handle full-screen swapchains so we block the ALT+ENTER shortcut
-	dxgiFactory->MakeWindowAssociation(m_hWnd, DXGI_MWA_NO_ALT_ENTER);
-
-	dxgiFactory->Release();
 
 	if (FAILED(hr))
 		return hr;
+
+	if (g_pRenderTargetView) {
+		g_pRenderTargetView->Release();
+		g_pRenderTargetView = nullptr;
+	}
 
 	// Create a render target view
 	ID3D11Texture2D* pBackBuffer = nullptr;
@@ -262,6 +290,10 @@ HRESULT D3D11BaseWindow::InitDevice()
 	if (FAILED(hr))
 		return hr;
 
+	if (g_pDepthStencil) {
+		g_pDepthStencil->Release();
+		g_pDepthStencil = nullptr;
+	}
 	// Create depth stencil texture
 	D3D11_TEXTURE2D_DESC descDepth = {};
 	descDepth.Width = width;
@@ -279,6 +311,10 @@ HRESULT D3D11BaseWindow::InitDevice()
 	if (FAILED(hr))
 		return hr;
 
+	if (g_pDepthStencilView) {
+		g_pDepthStencilView->Release();
+		g_pDepthStencilView = nullptr;
+	}
 	// Create the depth stencil view
 	D3D11_DEPTH_STENCIL_VIEW_DESC descDSV = {};
 	descDSV.Format = descDepth.Format;
@@ -300,194 +336,196 @@ HRESULT D3D11BaseWindow::InitDevice()
 	vp.TopLeftY = 0;
 	g_pImmediateContext->RSSetViewports(1, &vp);
 
-	// Compile the vertex shader
-	ID3DBlob* pVSBlob = nullptr;
+	if (!g_pVertexShader) {
+		// Compile the vertex shader
+		ID3DBlob* pVSBlob = nullptr;
 
-	std::wstring strD3DResPath;
+		std::wstring strD3DResPath;
 #ifdef D3D_RES_PATH
-	char szAnisDuiResPath[MAX_PATH] = { 0 };
-	strcpy_s(szAnisDuiResPath, D3D_RES_PATH);
-	TCHAR szDuiResPath[MAX_PATH] = { 0 };
-	MultiByteToWideChar(CP_ACP, 0, szAnisDuiResPath, strlen(szAnisDuiResPath), szDuiResPath, MAX_PATH - 1);
-	strD3DResPath = szDuiResPath;
+		char szAnisDuiResPath[MAX_PATH] = { 0 };
+		strcpy_s(szAnisDuiResPath, D3D_RES_PATH);
+		TCHAR szDuiResPath[MAX_PATH] = { 0 };
+		MultiByteToWideChar(CP_ACP, 0, szAnisDuiResPath, strlen(szAnisDuiResPath), szDuiResPath, MAX_PATH - 1);
+		strD3DResPath = szDuiResPath;
 #endif
-	std::wstring fxPath = strD3DResPath + L"Test.fx";
-	hr = CompileShaderFromFile(fxPath.c_str(), "VS", "vs_4_0", &pVSBlob);
-	if (FAILED(hr))
-	{
-		MessageBox(nullptr,
-			L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
-		return hr;
-	}
+		std::wstring fxPath = strD3DResPath + L"Test.fx";
+		hr = CompileShaderFromFile(fxPath.c_str(), "VS", "vs_4_0", &pVSBlob);
+		if (FAILED(hr))
+		{
+			MessageBox(nullptr,
+				L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
+			return hr;
+		}
 
-	// Create the vertex shader
-	hr = g_pd3dDevice->CreateVertexShader(pVSBlob->GetBufferPointer(), pVSBlob->GetBufferSize(), nullptr, &g_pVertexShader);
-	if (FAILED(hr))
-	{
+		// Create the vertex shader
+		hr = g_pd3dDevice->CreateVertexShader(pVSBlob->GetBufferPointer(), pVSBlob->GetBufferSize(), nullptr, &g_pVertexShader);
+		if (FAILED(hr))
+		{
+			pVSBlob->Release();
+			return hr;
+		}
+
+		// Define the input layout
+		D3D11_INPUT_ELEMENT_DESC layout[] =
+		{
+			{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+			{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		};
+		UINT numElements = ARRAYSIZE(layout);
+
+		// Create the input layout
+		hr = g_pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(),
+			pVSBlob->GetBufferSize(), &g_pVertexLayout);
 		pVSBlob->Release();
-		return hr;
+		if (FAILED(hr))
+			return hr;
+
+		// Set the input layout
+		g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
+
+		// Compile the pixel shader
+		ID3DBlob* pPSBlob = nullptr;
+		hr = CompileShaderFromFile(fxPath.c_str(), "PS", "ps_4_0", &pPSBlob);
+		if (FAILED(hr))
+		{
+			MessageBox(nullptr,
+				L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
+			return hr;
+		}
+
+		// Create the pixel shader
+		hr = g_pd3dDevice->CreatePixelShader(pPSBlob->GetBufferPointer(), pPSBlob->GetBufferSize(), nullptr, &g_pPixelShader);
+		pPSBlob->Release();
+		if (FAILED(hr))
+			return hr;
+
+		// Create vertex buffer
+		SimpleVertex vertices[] =
+		{
+			{ XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+			{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+			{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+			{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+
+			{ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+			{ XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+			{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+			{ XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+
+			{ XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+			{ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
+			{ XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+			{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
+
+			{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+			{ XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
+			{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+			{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
+
+			{ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
+			{ XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
+			{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
+			{ XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
+
+			{ XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
+			{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
+			{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
+			{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
+		};
+
+		D3D11_BUFFER_DESC bd = {};
+		bd.Usage = D3D11_USAGE_DEFAULT;
+		bd.ByteWidth = sizeof(SimpleVertex) * 24;
+		bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+		bd.CPUAccessFlags = 0;
+
+		D3D11_SUBRESOURCE_DATA InitData = {};
+		InitData.pSysMem = vertices;
+		hr = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pVertexBuffer);
+		if (FAILED(hr))
+			return hr;
+
+		// Set vertex buffer
+		UINT stride = sizeof(SimpleVertex);
+		UINT offset = 0;
+		g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+
+		// Create index buffer
+		// Create vertex buffer
+		WORD indices[] =
+		{
+			3,1,0,
+			2,1,3,
+
+			6,4,5,
+			7,4,6,
+
+			11,9,8,
+			10,9,11,
+
+			14,12,13,
+			15,12,14,
+
+			19,17,16,
+			18,17,19,
+
+			22,20,21,
+			23,20,22
+		};
+
+		bd.Usage = D3D11_USAGE_DEFAULT;
+		bd.ByteWidth = sizeof(WORD) * 36;
+		bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
+		bd.CPUAccessFlags = 0;
+		InitData.pSysMem = indices;
+		hr = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pIndexBuffer);
+		if (FAILED(hr))
+			return hr;
+
+		// Set index buffer
+		g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
+
+		// Set primitive topology
+		g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+		// Create the constant buffers
+		bd.Usage = D3D11_USAGE_DEFAULT;
+		bd.ByteWidth = sizeof(CBNeverChanges);
+		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+		bd.CPUAccessFlags = 0;
+		hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBNeverChanges);
+		if (FAILED(hr))
+			return hr;
+
+		bd.ByteWidth = sizeof(CBChangeOnResize);
+		hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangeOnResize);
+		if (FAILED(hr))
+			return hr;
+
+		bd.ByteWidth = sizeof(CBChangesEveryFrame);
+		hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangesEveryFrame);
+		if (FAILED(hr))
+			return hr;
+
+		// Load the Texture
+		std::wstring texPath = strD3DResPath + L"seafloor.dds";
+		hr = CreateDDSTextureFromFile(g_pd3dDevice, texPath.c_str(), nullptr, &g_pTextureRV);
+		if (FAILED(hr))
+			return hr;
+
+		// Create the sample state
+		D3D11_SAMPLER_DESC sampDesc = {};
+		sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
+		sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+		sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+		sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+		sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+		sampDesc.MinLOD = 0;
+		sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+		hr = g_pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerLinear);
+		if (FAILED(hr))
+			return hr;
 	}
-
-	// Define the input layout
-	D3D11_INPUT_ELEMENT_DESC layout[] =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0 },
-	};
-	UINT numElements = ARRAYSIZE(layout);
-
-	// Create the input layout
-	hr = g_pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(),
-		pVSBlob->GetBufferSize(), &g_pVertexLayout);
-	pVSBlob->Release();
-	if (FAILED(hr))
-		return hr;
-
-	// Set the input layout
-	g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
-
-	// Compile the pixel shader
-	ID3DBlob* pPSBlob = nullptr;
-	hr = CompileShaderFromFile(fxPath.c_str(), "PS", "ps_4_0", &pPSBlob);
-	if (FAILED(hr))
-	{
-		MessageBox(nullptr,
-			L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
-		return hr;
-	}
-
-	// Create the pixel shader
-	hr = g_pd3dDevice->CreatePixelShader(pPSBlob->GetBufferPointer(), pPSBlob->GetBufferSize(), nullptr, &g_pPixelShader);
-	pPSBlob->Release();
-	if (FAILED(hr))
-		return hr;
-
-	// Create vertex buffer
-	SimpleVertex vertices[] =
-	{
-		{ XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
-
-		{ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
-
-		{ XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
-
-		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
-
-		{ XMFLOAT3(-1.0f, -1.0f, -1.0f), XMFLOAT2(0.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, -1.0f), XMFLOAT2(1.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, -1.0f), XMFLOAT2(1.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, -1.0f), XMFLOAT2(0.0f, 0.0f) },
-
-		{ XMFLOAT3(-1.0f, -1.0f, 1.0f), XMFLOAT2(1.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, -1.0f, 1.0f), XMFLOAT2(0.0f, 1.0f) },
-		{ XMFLOAT3(1.0f, 1.0f, 1.0f), XMFLOAT2(0.0f, 0.0f) },
-		{ XMFLOAT3(-1.0f, 1.0f, 1.0f), XMFLOAT2(1.0f, 0.0f) },
-	};
-
-	D3D11_BUFFER_DESC bd = {};
-	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = sizeof(SimpleVertex) * 24;
-	bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-	bd.CPUAccessFlags = 0;
-
-	D3D11_SUBRESOURCE_DATA InitData = {};
-	InitData.pSysMem = vertices;
-	hr = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pVertexBuffer);
-	if (FAILED(hr))
-		return hr;
-
-	// Set vertex buffer
-	UINT stride = sizeof(SimpleVertex);
-	UINT offset = 0;
-	g_pImmediateContext->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
-
-	// Create index buffer
-	// Create vertex buffer
-	WORD indices[] =
-	{
-		3,1,0,
-		2,1,3,
-
-		6,4,5,
-		7,4,6,
-
-		11,9,8,
-		10,9,11,
-
-		14,12,13,
-		15,12,14,
-
-		19,17,16,
-		18,17,19,
-
-		22,20,21,
-		23,20,22
-	};
-
-	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = sizeof(WORD) * 36;
-	bd.BindFlags = D3D11_BIND_INDEX_BUFFER;
-	bd.CPUAccessFlags = 0;
-	InitData.pSysMem = indices;
-	hr = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pIndexBuffer);
-	if (FAILED(hr))
-		return hr;
-
-	// Set index buffer
-	g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
-
-	// Set primitive topology
-	g_pImmediateContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-	// Create the constant buffers
-	bd.Usage = D3D11_USAGE_DEFAULT;
-	bd.ByteWidth = sizeof(CBNeverChanges);
-	bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-	bd.CPUAccessFlags = 0;
-	hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBNeverChanges);
-	if (FAILED(hr))
-		return hr;
-
-	bd.ByteWidth = sizeof(CBChangeOnResize);
-	hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangeOnResize);
-	if (FAILED(hr))
-		return hr;
-
-	bd.ByteWidth = sizeof(CBChangesEveryFrame);
-	hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangesEveryFrame);
-	if (FAILED(hr))
-		return hr;
-
-	// Load the Texture
-	std::wstring texPath = strD3DResPath + L"seafloor.dds";
-	hr = CreateDDSTextureFromFile(g_pd3dDevice, texPath.c_str(), nullptr, &g_pTextureRV);
-	if (FAILED(hr))
-		return hr;
-
-	// Create the sample state
-	D3D11_SAMPLER_DESC sampDesc = {};
-	sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
-	sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
-	sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
-	sampDesc.MinLOD = 0;
-	sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
-	hr = g_pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerLinear);
-	if (FAILED(hr))
-		return hr;
 
 	// Initialize the world matrices
 	g_World = XMMatrixIdentity();
@@ -513,6 +551,9 @@ HRESULT D3D11BaseWindow::InitDevice()
 }
 void D3D11BaseWindow::CleanupDevice()
 {
+	if (m_pDxgiFactory2) m_pDxgiFactory2->Release();
+	if (m_pDxgiFactory) m_pDxgiFactory->Release();
+
 	if (g_pImmediateContext) g_pImmediateContext->ClearState();
 
 	if (g_pSamplerLinear) g_pSamplerLinear->Release();
@@ -537,6 +578,9 @@ void D3D11BaseWindow::CleanupDevice()
 }
 void D3D11BaseWindow::Render()
 {
+	if (!g_pImmediateContext)
+		return;
+
 	// Update our time
 	static float t = 0.0f;
 	if (g_driverType == D3D_DRIVER_TYPE_REFERENCE)

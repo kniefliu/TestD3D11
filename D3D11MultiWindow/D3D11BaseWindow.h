@@ -46,8 +46,12 @@ protected:
 	ID3D11Buffer* g_pCBChangesEveryFrame = nullptr;
 	ID3D11ShaderResourceView* g_pTextureRV = nullptr;
 	ID3D11SamplerState* g_pSamplerLinear = nullptr;
+	IDXGIFactory1* m_pDxgiFactory = nullptr;
+	IDXGIFactory2* m_pDxgiFactory2 = nullptr;
 	DirectX::XMMATRIX                            g_World;
 	DirectX::XMMATRIX                            g_View;
 	DirectX::XMMATRIX                            g_Projection;
 	DirectX::XMFLOAT4                            g_vMeshColor;
+	int m_iLastWidth;
+	int m_iLastHeight;
 };
