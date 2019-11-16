@@ -18,5 +18,12 @@ protected:
 	virtual void DoPaint(HDC hdc);
 
 protected:
+#ifndef USE_GDI_CHILD_WINDOW
 	D3D11BaseWindow* m_pChildWindow;
+#else
+	GDIBaseWindow* m_pChildWindow;
+#endif
+	HBRUSH m_hbrushFill;
+	RECT m_rcCaption;
+	RECT m_rcSizeBox;
 };

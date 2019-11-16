@@ -2,6 +2,8 @@
 
 #include "GDIBaseWindow.h"
 
+#define USE_POPUP 1
+
 int APIENTRY WinMain(HINSTANCE hInstance,
 	HINSTANCE hPrevInstance,
 	LPSTR    lpCmdLine,
@@ -11,7 +13,15 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(lpCmdLine);
 
 	GDIBaseWindow* window = new GDIBaseWindow();
-	window->Create(NULL, L"GDIWindow", UI_WNDSTYLE_FRAME, 0);
+	RECT rc = { 0,0,800,600 };
+	DWORD dwStyle = WS_OVERLAPPED;
+#if USE_POPUP
+	window->Create(NULL, L"GDIWindow", WS_POPUP, 0, rc);
+#else
+	window->Create(NULL, L"GDIWindow", dwStyle, 0, rc);
+#endif
+	window->CenterWindow();
+	window->ShowWindow();
 	CWindowWnd::MessageLoop();
 
 	return 0;

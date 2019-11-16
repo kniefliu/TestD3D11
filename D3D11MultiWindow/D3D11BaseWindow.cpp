@@ -85,7 +85,10 @@ LPCTSTR D3D11BaseWindow::GetWindowClassName() const
 {
 	return L"D3D11BaseWindow";
 }
-
+UINT D3D11BaseWindow::GetClassStyle() const
+{
+	return CS_VREDRAW | CS_HREDRAW;
+}
 LRESULT D3D11BaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch (uMsg) {
@@ -109,7 +112,7 @@ LRESULT D3D11BaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		PAINTSTRUCT ps;
 		::BeginPaint(m_hWnd, &ps);
 		::EndPaint(m_hWnd, &ps);
-		break;
+		return 0;
 	}
 	case WM_TIMER:
 	{

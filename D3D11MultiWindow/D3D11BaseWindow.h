@@ -14,6 +14,7 @@ public:
 
 protected:
 	LPCTSTR GetWindowClassName() const override;
+	UINT GetClassStyle() const override;
 	LRESULT HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam) override;
 	void OnFinalMessage(HWND hWnd) override;
 
