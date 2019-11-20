@@ -3,6 +3,9 @@
 #include "DDSTextureLoader.h"
 
 #include <string>
+#include <dwmapi.h>
+
+#include "GDIBaseWindow.h"
 
 using namespace DirectX;
 
@@ -89,11 +92,33 @@ UINT D3D11BaseWindow::GetClassStyle() const
 {
 	return CS_VREDRAW | CS_HREDRAW;
 }
+static HRESULT DisableNCRendering(HWND hWnd)
+{
+	HRESULT hr = S_OK;
+
+	DWMNCRENDERINGPOLICY ncrp = DWMNCRP_DISABLED;
+
+	// Disable non-client area rendering on the window.
+	hr = ::DwmSetWindowAttribute(hWnd,
+		DWMWA_NCRENDERING_POLICY,
+		&ncrp,
+		sizeof(ncrp));
+
+	if (SUCCEEDED(hr))
+	{
+		// ...
+	}
+
+	return hr;
+}
 LRESULT D3D11BaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch (uMsg) {
 	case WM_CREATE:
 	{
+		m_pChild = new GDIBaseWindow();
+		m_pChild->Create(m_hWnd, L"D3D11-Child", UI_WNDSTYLE_CHILD, 0);
+		//DisableNCRendering(m_hWnd);
 		InitDevice();
 		::SetTimer(m_hWnd, kRenderTimerID, 15, 0);
 		break;
@@ -101,23 +126,37 @@ LRESULT D3D11BaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 	case WM_SIZE:
 	{
 		InitDevice();
+		if (m_pChild) {
+			int cx = LOWORD(lParam) - 200;
+			int cy = HIWORD(lParam) - 200;
+			//m_pChildWindow->Resize(cx, cy);
+			::MoveWindow(m_pChild->GetHWND(), 50, 50, cx, cy, TRUE);
+		}
 		break;
 	}
 	case WM_ERASEBKGND:
 	{
-		return 1;
+		break;// return 1;
 	}
 	case WM_PAINT:
 	{
 		PAINTSTRUCT ps;
-		::BeginPaint(m_hWnd, &ps);
+		RECT rc;
+		::GetClientRect(m_hWnd, &rc);
+		HDC hdc = ::BeginPaint(m_hWnd, &ps);
+		//::SendMessage(::GetParent(m_hWnd), WM_PAINT, 0, 0);
+		//::FillRect(hdc, &rc, (HBRUSH)::GetStockObject(WHITE_BRUSH));
+		Render();
 		::EndPaint(m_hWnd, &ps);
-		return 0;
+		return 1;
 	}
 	case WM_TIMER:
 	{
 		if (wParam == kRenderTimerID) {
 			Render();
+			if (m_pChild) {
+				::InvalidateRect(m_pChild->GetHWND(), NULL, TRUE);
+			}
 		}
 		break;
 	}
@@ -147,6 +186,16 @@ HRESULT D3D11BaseWindow::InitDevice()
 	GetClientRect(m_hWnd, &rc);
 	UINT width = rc.right - rc.left;
 	UINT height = rc.bottom - rc.top;
+
+	//static bool first = true;
+	//if (first) {
+	//	if (width != 0 && height != 0) {
+	//		first = false;
+	//	}
+	//}
+	//else {
+	//	return hr;
+	//}
 
 	if (m_iLastWidth == width && m_iLastHeight == height) {
 		return hr;
@@ -240,20 +289,103 @@ HRESULT D3D11BaseWindow::InitDevice()
 		g_pSwapChain = nullptr;
 	}
 	if (m_pDxgiFactory2) {
-		DXGI_SWAP_CHAIN_DESC1 sd = {};
+#if USE_D3D11_FLIP
+		if (!m_pVisual) {
+			HMODULE dcomp = ::LoadLibrary(TEXT("dcomp.dll"));
+			if (!dcomp)
+			{
+				return E_INVALIDARG;
+			}
+
+			typedef HRESULT(WINAPI * PFN_DCOMPOSITION_CREATE_DEVICE)(
+				IDXGIDevice * dxgiDevice, REFIID iid, void** dcompositionDevice);
+			PFN_DCOMPOSITION_CREATE_DEVICE createDComp =
+				reinterpret_cast<PFN_DCOMPOSITION_CREATE_DEVICE>(
+					GetProcAddress(dcomp, "DCompositionCreateDevice"));
+			if (!createDComp)
+			{
+				return E_INVALIDARG;
+			}
+
+			if (!m_pDevice)
+			{
+				IDXGIDevice* dxgiDevice = nullptr;
+				HRESULT result = g_pd3dDevice->QueryInterface(__uuidof(IDXGIDevice), reinterpret_cast<void**>(&dxgiDevice));
+				if (SUCCEEDED(result))
+				{
+					HRESULT result = createDComp(dxgiDevice, __uuidof(IDCompositionDevice),
+						reinterpret_cast<void**>(&m_pDevice));
+					dxgiDevice->Release();
+
+					if (FAILED(result))
+					{
+						return result;
+					}
+				}
+
+				if (!m_pCompositionTarget)
+				{
+					HRESULT result =
+						m_pDevice->CreateTargetForHwnd(m_hWnd, TRUE, &m_pCompositionTarget);
+					if (FAILED(result))
+					{
+						return result;
+					}
+				}
+
+				if (!m_pVisual)
+				{
+					HRESULT result = m_pDevice->CreateVisual(&m_pVisual);
+					if (FAILED(result))
+					{
+						return result;
+					}
+				}
+			}
+		}
+		DXGI_SWAP_CHAIN_DESC1 sd = { 0 };
 		sd.Width = width;
 		sd.Height = height;
 		sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		sd.Stereo = FALSE;
 		sd.SampleDesc.Count = 1;
 		sd.SampleDesc.Quality = 0;
-		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
-		sd.BufferCount = 1;
+		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_BACK_BUFFER | DXGI_USAGE_SHADER_INPUT;
+		sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+		sd.BufferCount = 2;
+		sd.Scaling = DXGI_SCALING_STRETCH;
+		sd.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+		sd.Flags = 0;
 
-		hr = m_pDxgiFactory2->CreateSwapChainForHwnd(g_pd3dDevice, m_hWnd, &sd, nullptr, nullptr, &g_pSwapChain1);
+		hr = m_pDxgiFactory2->CreateSwapChainForComposition(g_pd3dDevice, &sd, nullptr, &g_pSwapChain1);
 		if (SUCCEEDED(hr))
 		{
 			hr = g_pSwapChain1->QueryInterface(__uuidof(IDXGISwapChain), reinterpret_cast<void**>(&g_pSwapChain));
 		}
+		m_pVisual->SetContent(g_pSwapChain1);
+		m_pCompositionTarget->SetRoot(m_pVisual);
+#else
+		DXGI_SWAP_CHAIN_DESC1 sd = { 0 };
+		sd.Width = width;
+		sd.Height = height;
+		sd.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+		sd.Stereo = FALSE;
+		sd.SampleDesc.Count = 1;
+		sd.SampleDesc.Quality = 0;
+		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_BACK_BUFFER | DXGI_USAGE_SHADER_INPUT;
+		sd.SwapEffect = DXGI_SWAP_EFFECT_SEQUENTIAL;
+		sd.BufferCount = 1;
+		sd.Scaling = DXGI_SCALING_STRETCH;
+		sd.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED;
+		sd.Flags = 0;
+
+		hr = m_pDxgiFactory2->CreateSwapChainForHwnd(g_pd3dDevice, m_hWnd, &sd, nullptr, nullptr, &g_pSwapChain1);
+		//hr = m_pDxgiFactory2->CreateSwapChainForComposition(g_pd3dDevice, &sd, nullptr, &g_pSwapChain1);
+		if (SUCCEEDED(hr))
+		{
+			hr = g_pSwapChain1->QueryInterface(__uuidof(IDXGISwapChain), reinterpret_cast<void**>(&g_pSwapChain));
+		}
+#endif
 	}
 	else
 	{
@@ -266,6 +398,7 @@ HRESULT D3D11BaseWindow::InitDevice()
 		sd.BufferDesc.RefreshRate.Numerator = 60;
 		sd.BufferDesc.RefreshRate.Denominator = 1;
 		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+		sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
 		sd.OutputWindow = m_hWnd;
 		sd.SampleDesc.Count = 1;
 		sd.SampleDesc.Quality = 0;
@@ -584,6 +717,8 @@ void D3D11BaseWindow::Render()
 	if (!g_pImmediateContext)
 		return;
 
+	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
+
 	// Update our time
 	static float t = 0.0f;
 	if (g_driverType == D3D_DRIVER_TYPE_REFERENCE)
@@ -611,6 +746,8 @@ void D3D11BaseWindow::Render()
 	// Clear the back buffer
 	//
 	g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, Colors::MidnightBlue);
+
+	g_pImmediateContext->ClearRenderTargetView(g_pRenderTargetView, Colors::MediumSpringGreen);
 
 	//
 	// Clear the depth buffer to 1.0 (max depth)
@@ -641,5 +778,18 @@ void D3D11BaseWindow::Render()
 	//
 	// Present our back buffer to our front buffer
 	//
-	g_pSwapChain->Present(0, 0);
+	RECT rc;
+	::GetClientRect(m_hWnd, &rc);
+	RECT rect = { 0, 0, (rc.right - rc.left), (rc.bottom - rc.top) };
+	DXGI_PRESENT_PARAMETERS params = { 1, &rect, nullptr, nullptr };
+	if (g_pSwapChain1) {
+		g_pSwapChain1->Present1(1, 0, &params);
+	}
+	else if (g_pSwapChain) {
+		g_pSwapChain->Present(1, 0);
+	}
+	if (m_pDevice)
+	{
+		m_pDevice->Commit();
+	}
 }

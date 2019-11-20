@@ -1,7 +1,7 @@
 #pragma once
 
 #include "WindowWnd.h"
-
+#include "D3DConfig.h"
 #include "D3D11BaseWindow.h"
 
 class GDIBaseWindow : public CWindowWnd {
@@ -16,12 +16,13 @@ protected:
 	void OnFinalMessage(HWND hWnd) override;
 
 	virtual void DoPaint(HDC hdc);
-
 protected:
-#ifndef USE_GDI_CHILD_WINDOW
-	D3D11BaseWindow* m_pChildWindow;
-#else
+	enum { kAnimationTimer = 100 };
+protected:
+#if USE_GDI_CHILD_WINDOW
 	GDIBaseWindow* m_pChildWindow;
+#else
+	D3D11BaseWindow* m_pChildWindow;
 #endif
 	HBRUSH m_hbrushFill;
 	RECT m_rcCaption;

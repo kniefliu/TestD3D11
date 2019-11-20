@@ -1,9 +1,12 @@
 #include "GDIBaseWindow.h"
 
 #include <windowsx.h>
+#include <dwmapi.h>
 
 const int kDefaultBorderSize = 4;
 const int kDefaultCaptionHeight = 20;
+
+#define WM_RESIZE  WM_USER + 1
 
 GDIBaseWindow::GDIBaseWindow()
 	: m_pChildWindow(nullptr)
@@ -32,6 +35,25 @@ UINT GDIBaseWindow::GetClassStyle() const
 {
 	return CS_VREDRAW | CS_HREDRAW;
 }
+static HRESULT DisableNCRendering(HWND hWnd)
+{
+	HRESULT hr = S_OK;
+
+	DWMNCRENDERINGPOLICY ncrp = DWMNCRP_DISABLED;
+
+	// Disable non-client area rendering on the window.
+	hr = ::DwmSetWindowAttribute(hWnd,
+		DWMWA_NCRENDERING_POLICY,
+		&ncrp,
+		sizeof(ncrp));
+
+	if (SUCCEEDED(hr))
+	{
+		// ...
+	}
+
+	return hr;
+}
 LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch (uMsg) {
@@ -44,6 +66,10 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 	case WM_NCPAINT:
 	{
 		return 1;
+	}
+	case WM_PARENTNOTIFY:
+	{
+		break;
 	}
 	case WM_NCHITTEST:
 	{
@@ -82,11 +108,9 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		styleValue &= ~WS_CAPTION;
 		styleValue &= ~WS_BORDER;
 		::SetWindowLong(*this, GWL_STYLE, styleValue | WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
+		//DisableNCRendering(m_hWnd);
 
-#ifndef USE_GDI_CHILD_WINDOW
-		m_pChildWindow = new D3D11BaseWindow();
-		m_pChildWindow->Create(m_hWnd, L"D3D11BaseWindow", UI_WNDSTYLE_CHILD, 0);
-#else
+#if USE_GDI_CHILD_WINDOW
 		if ((styleValue & WS_CHILD) == WS_CHILD) {
 			m_hbrushFill = (HBRUSH)::GetStockObject(DKGRAY_BRUSH);
 		}
@@ -94,8 +118,44 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 			m_pChildWindow = new GDIBaseWindow();
 			m_pChildWindow->Create(m_hWnd, L"GDIChildWindow", UI_WNDSTYLE_CHILD, 0);
 		}
+#else
+		if ((styleValue & WS_CHILD) == WS_CHILD) {
+			m_hbrushFill = (HBRUSH)::GetStockObject(DKGRAY_BRUSH);
+		}
+		else {
+			m_pChildWindow = new D3D11BaseWindow();
+			m_pChildWindow->Create(m_hWnd, L"D3D11BaseWindow", UI_WNDSTYLE_CHILD, 0);
+			//::SetTimer(m_hWnd, kAnimationTimer, 15, 0);
+		}
 #endif
+		
 		return 0;
+	}
+	case WM_RESIZE:
+	{
+		::SetWindowPos(m_hWnd, NULL, 0, 0, (int)wParam, (int)lParam, SWP_NOMOVE);
+		return 0;
+	}
+	case WM_TIMER:
+	{
+		if (wParam == kAnimationTimer) {
+#ifndef USE_GDI_CHILD_WINDOW
+			RECT rc;
+			::GetWindowRect(m_hWnd, &rc);
+			static bool alert = true;
+			if (alert) {
+				rc.right += 2;
+				rc.bottom += 2;
+			}
+			else {
+				rc.right -= 2;
+				rc.bottom -= 2;
+			}
+			::PostMessage(m_hWnd, WM_RESIZE, (rc.right - rc.left), (rc.bottom - rc.top));
+			alert = !alert;
+#endif
+		}
+		break;
 	}
 	case WM_ERASEBKGND:
 	{
@@ -126,6 +186,9 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 	}
 	case WM_DESTROY:
 	{
+#ifndef USE_GDI_CHILD_WINDOW
+		::KillTimer(m_hWnd, kAnimationTimer);
+#endif
 		PostQuitMessage(0);
 		break;
 	}

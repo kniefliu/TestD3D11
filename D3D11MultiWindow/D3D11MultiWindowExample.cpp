@@ -2,8 +2,6 @@
 
 #include "GDIBaseWindow.h"
 
-#define USE_POPUP 1
-
 int APIENTRY WinMain(HINSTANCE hInstance,
 	HINSTANCE hPrevInstance,
 	LPSTR    lpCmdLine,

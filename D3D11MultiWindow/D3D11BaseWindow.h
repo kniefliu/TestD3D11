@@ -6,7 +6,11 @@
 #include <d3dcompiler.h>
 #include <directxmath.h>
 #include <directxcolors.h>
+#include <dcomp.h>
 
+#include "D3DConfig.h"
+
+class GDIBaseWindow;
 class D3D11BaseWindow : public CWindowWnd {
 public:
 	D3D11BaseWindow();
@@ -49,10 +53,17 @@ protected:
 	ID3D11SamplerState* g_pSamplerLinear = nullptr;
 	IDXGIFactory1* m_pDxgiFactory = nullptr;
 	IDXGIFactory2* m_pDxgiFactory2 = nullptr;
+	IDCompositionDevice* m_pDevice = nullptr;
+	IDCompositionTarget* m_pCompositionTarget = nullptr;
+	IDCompositionVisual* m_pVisual = nullptr;
 	DirectX::XMMATRIX                            g_World;
 	DirectX::XMMATRIX                            g_View;
 	DirectX::XMMATRIX                            g_Projection;
 	DirectX::XMFLOAT4                            g_vMeshColor;
 	int m_iLastWidth;
 	int m_iLastHeight;
+	
+
+protected:
+	GDIBaseWindow* m_pChild = nullptr;
 };
