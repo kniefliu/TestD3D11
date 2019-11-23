@@ -110,6 +110,7 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		::SetWindowLong(*this, GWL_STYLE, styleValue | WS_CLIPCHILDREN | WS_CLIPSIBLINGS);
 		//DisableNCRendering(m_hWnd);
 
+#if GDIBASE_HAS_CHILD
 #if USE_GDI_CHILD_WINDOW
 		if ((styleValue & WS_CHILD) == WS_CHILD) {
 			m_hbrushFill = (HBRUSH)::GetStockObject(DKGRAY_BRUSH);
@@ -127,6 +128,7 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 			m_pChildWindow->Create(m_hWnd, L"D3D11BaseWindow", UI_WNDSTYLE_CHILD, 0);
 			//::SetTimer(m_hWnd, kAnimationTimer, 15, 0);
 		}
+#endif
 #endif
 		
 		return 0;

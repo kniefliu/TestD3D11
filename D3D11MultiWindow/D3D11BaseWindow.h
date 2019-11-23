@@ -11,10 +11,12 @@
 #include "D3DConfig.h"
 
 class GDIBaseWindow;
-class D3D11BaseWindow : public CWindowWnd {
+__declspec(align(16)) class D3D11BaseWindow : public CWindowWnd {
 public:
 	D3D11BaseWindow();
 	~D3D11BaseWindow() override;
+	void *operator new(size_t i) { return _mm_malloc(i, 16); }
+	void operator delete(void* p) { _mm_free(p); }
 
 protected:
 	LPCTSTR GetWindowClassName() const override;

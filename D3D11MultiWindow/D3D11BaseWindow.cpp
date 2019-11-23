@@ -7,6 +7,25 @@
 
 #include "GDIBaseWindow.h"
 
+std::wstring GetLastErrorAsString()
+{
+	//Get the error message, if any.
+	DWORD errorMessageID = ::GetLastError();
+	if (errorMessageID == 0)
+		return std::wstring(); //No error message has been recorded
+
+	LPWSTR messageBuffer = nullptr;
+	size_t size = ::FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+		NULL, errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), (LPWSTR)&messageBuffer, 0, NULL);
+
+	std::wstring message(messageBuffer, size);
+
+	//Free the buffer.
+	::LocalFree(messageBuffer);
+
+	return message;
+}
+
 using namespace DirectX;
 
 //--------------------------------------------------------------------------------------
@@ -116,8 +135,10 @@ LRESULT D3D11BaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 	switch (uMsg) {
 	case WM_CREATE:
 	{
+#if D3D11BASE_HAS_CHILD
 		m_pChild = new GDIBaseWindow();
 		m_pChild->Create(m_hWnd, L"D3D11-Child", UI_WNDSTYLE_CHILD, 0);
+#endif
 		//DisableNCRendering(m_hWnd);
 		InitDevice();
 		::SetTimer(m_hWnd, kRenderTimerID, 15, 0);
@@ -154,9 +175,9 @@ LRESULT D3D11BaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 	{
 		if (wParam == kRenderTimerID) {
 			Render();
-			if (m_pChild) {
-				::InvalidateRect(m_pChild->GetHWND(), NULL, TRUE);
-			}
+			//if (m_pChild) {
+			//	::InvalidateRect(m_pChild->GetHWND(), NULL, TRUE);
+			//}
 		}
 		break;
 	}
@@ -186,16 +207,6 @@ HRESULT D3D11BaseWindow::InitDevice()
 	GetClientRect(m_hWnd, &rc);
 	UINT width = rc.right - rc.left;
 	UINT height = rc.bottom - rc.top;
-
-	//static bool first = true;
-	//if (first) {
-	//	if (width != 0 && height != 0) {
-	//		first = false;
-	//	}
-	//}
-	//else {
-	//	return hr;
-	//}
 
 	if (m_iLastWidth == width && m_iLastHeight == height) {
 		return hr;
@@ -240,8 +251,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 			if (SUCCEEDED(hr))
 				break;
 		}
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"D3D11CreateDevice Error", MB_OK);
 			return hr;
+		}
 	}
 
 	// Obtain DXGI factory from device (since we used nullptr for pAdapter above)
@@ -261,8 +276,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 			dxgiDevice->Release();
 		}
 
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"ID3D11Device  QueryInterface IDXGIDevice", MB_OK);
 			return hr;
+		}
 
 		// Create swap chain
 		hr = m_pDxgiFactory->QueryInterface(__uuidof(IDXGIFactory2), reinterpret_cast<void**>(&m_pDxgiFactory2));
@@ -274,12 +293,21 @@ HRESULT D3D11BaseWindow::InitDevice()
 			{
 				(void)g_pImmediateContext->QueryInterface(__uuidof(ID3D11DeviceContext1), reinterpret_cast<void**>(&g_pImmediateContext1));
 			}
+			else {
+				std::wstring errMsg = GetLastErrorAsString();
+				::MessageBox(nullptr,
+					errMsg.c_str(), L"QueryInterface ID3D11DeviceContext1", MB_OK);
+			}
 		}
 		// Note this tutorial doesn't handle full-screen swapchains so we block the ALT+ENTER shortcut
 		m_pDxgiFactory->MakeWindowAssociation(m_hWnd, DXGI_MWA_NO_ALT_ENTER);
 	}
-	if (FAILED(hr))
+	if (!m_pDxgiFactory) {
+		std::wstring errMsg = GetLastErrorAsString();
+		::MessageBox(nullptr,
+			errMsg.c_str(), L"IDXGIFactory1 Null", MB_OK);
 		return hr;
+	}
 	if (g_pSwapChain1) {
 		g_pSwapChain1->Release();
 		g_pSwapChain1 = nullptr;
@@ -407,8 +435,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 		hr = m_pDxgiFactory->CreateSwapChain(g_pd3dDevice, &sd, &g_pSwapChain);
 	}
 
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		std::wstring errMsg = GetLastErrorAsString();
+		::MessageBox(nullptr,
+			errMsg.c_str(), L"CreateSwapChain Failed", MB_OK);
 		return hr;
+	}
 
 	if (g_pRenderTargetView) {
 		g_pRenderTargetView->Release();
@@ -418,13 +450,21 @@ HRESULT D3D11BaseWindow::InitDevice()
 	// Create a render target view
 	ID3D11Texture2D* pBackBuffer = nullptr;
 	hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), reinterpret_cast<void**>(&pBackBuffer));
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		std::wstring errMsg = GetLastErrorAsString();
+		::MessageBox(nullptr,
+			errMsg.c_str(), L"SwapChain GetBuffer Failed", MB_OK);
 		return hr;
+	}
 
 	hr = g_pd3dDevice->CreateRenderTargetView(pBackBuffer, nullptr, &g_pRenderTargetView);
 	pBackBuffer->Release();
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		std::wstring errMsg = GetLastErrorAsString();
+		::MessageBox(nullptr,
+			errMsg.c_str(), L"CreateRenderTargetView Failed", MB_OK);
 		return hr;
+	}
 
 	if (g_pDepthStencil) {
 		g_pDepthStencil->Release();
@@ -444,8 +484,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 	descDepth.CPUAccessFlags = 0;
 	descDepth.MiscFlags = 0;
 	hr = g_pd3dDevice->CreateTexture2D(&descDepth, nullptr, &g_pDepthStencil);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		std::wstring errMsg = GetLastErrorAsString();
+		::MessageBox(nullptr,
+			errMsg.c_str(), L"DepthStencil CreateTexture2D Failed", MB_OK);
 		return hr;
+	}
 
 	if (g_pDepthStencilView) {
 		g_pDepthStencilView->Release();
@@ -457,8 +501,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 	descDSV.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
 	descDSV.Texture2D.MipSlice = 0;
 	hr = g_pd3dDevice->CreateDepthStencilView(g_pDepthStencil, &descDSV, &g_pDepthStencilView);
-	if (FAILED(hr))
+	if (FAILED(hr)) {
+		std::wstring errMsg = GetLastErrorAsString();
+		::MessageBox(nullptr,
+			errMsg.c_str(), L"CreateDepthStencilView Failed", MB_OK);
 		return hr;
+	}
 
 	g_pImmediateContext->OMSetRenderTargets(1, &g_pRenderTargetView, g_pDepthStencilView);
 
@@ -488,9 +536,14 @@ HRESULT D3D11BaseWindow::InitDevice()
 		hr = CompileShaderFromFile(fxPath.c_str(), "VS", "vs_4_0", &pVSBlob);
 		if (FAILED(hr))
 		{
-			MessageBox(nullptr,
-				L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
-			return hr;
+			fxPath = L"Test.fx";
+			hr = CompileShaderFromFile(fxPath.c_str(), "VS", "vs_4_0", &pVSBlob);
+			if (FAILED(hr))
+			{
+				::MessageBox(nullptr,
+					L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
+				return hr;
+			}
 		}
 
 		// Create the vertex shader
@@ -498,6 +551,9 @@ HRESULT D3D11BaseWindow::InitDevice()
 		if (FAILED(hr))
 		{
 			pVSBlob->Release();
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateVertexShader Failed", MB_OK);
 			return hr;
 		}
 
@@ -513,8 +569,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 		hr = g_pd3dDevice->CreateInputLayout(layout, numElements, pVSBlob->GetBufferPointer(),
 			pVSBlob->GetBufferSize(), &g_pVertexLayout);
 		pVSBlob->Release();
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateInputLayout Failed", MB_OK);
 			return hr;
+		}
 
 		// Set the input layout
 		g_pImmediateContext->IASetInputLayout(g_pVertexLayout);
@@ -524,7 +584,7 @@ HRESULT D3D11BaseWindow::InitDevice()
 		hr = CompileShaderFromFile(fxPath.c_str(), "PS", "ps_4_0", &pPSBlob);
 		if (FAILED(hr))
 		{
-			MessageBox(nullptr,
+			::MessageBox(nullptr,
 				L"The FX file cannot be compiled.  Please run this executable from the directory that contains the FX file.", L"Error", MB_OK);
 			return hr;
 		}
@@ -532,8 +592,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 		// Create the pixel shader
 		hr = g_pd3dDevice->CreatePixelShader(pPSBlob->GetBufferPointer(), pPSBlob->GetBufferSize(), nullptr, &g_pPixelShader);
 		pPSBlob->Release();
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreatePixelShader Failed", MB_OK);
 			return hr;
+		}
 
 		// Create vertex buffer
 		SimpleVertex vertices[] =
@@ -578,8 +642,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 		D3D11_SUBRESOURCE_DATA InitData = {};
 		InitData.pSysMem = vertices;
 		hr = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pVertexBuffer);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateBuffer VertexBuffer Failed", MB_OK);
 			return hr;
+		}
 
 		// Set vertex buffer
 		UINT stride = sizeof(SimpleVertex);
@@ -615,8 +683,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 		bd.CPUAccessFlags = 0;
 		InitData.pSysMem = indices;
 		hr = g_pd3dDevice->CreateBuffer(&bd, &InitData, &g_pIndexBuffer);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateBuffer IndexBuffer Failed", MB_OK);
 			return hr;
+		}
 
 		// Set index buffer
 		g_pImmediateContext->IASetIndexBuffer(g_pIndexBuffer, DXGI_FORMAT_R16_UINT, 0);
@@ -630,24 +702,44 @@ HRESULT D3D11BaseWindow::InitDevice()
 		bd.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
 		bd.CPUAccessFlags = 0;
 		hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBNeverChanges);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateBuffer CBNeverChanges Failed", MB_OK);
 			return hr;
+		}
 
 		bd.ByteWidth = sizeof(CBChangeOnResize);
 		hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangeOnResize);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateBuffer CBChangeOnResize Failed", MB_OK);
 			return hr;
+		}
 
 		bd.ByteWidth = sizeof(CBChangesEveryFrame);
 		hr = g_pd3dDevice->CreateBuffer(&bd, nullptr, &g_pCBChangesEveryFrame);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateBuffer CBChangesEveryFrame Failed", MB_OK);
 			return hr;
+		}
 
 		// Load the Texture
 		std::wstring texPath = strD3DResPath + L"seafloor.dds";
 		hr = CreateDDSTextureFromFile(g_pd3dDevice, texPath.c_str(), nullptr, &g_pTextureRV);
-		if (FAILED(hr))
-			return hr;
+		if (FAILED(hr)) {
+			texPath = L"seafloor.dds";
+			hr = CreateDDSTextureFromFile(g_pd3dDevice, texPath.c_str(), nullptr, &g_pTextureRV);
+			if (FAILED(hr)) {
+				std::wstring errMsg = GetLastErrorAsString();
+				::MessageBox(nullptr,
+					errMsg.c_str(), L"CreateDDSTextureFromFile Failed", MB_OK);
+				return hr;
+			}
+		}
 
 		// Create the sample state
 		D3D11_SAMPLER_DESC sampDesc = {};
@@ -659,8 +751,12 @@ HRESULT D3D11BaseWindow::InitDevice()
 		sampDesc.MinLOD = 0;
 		sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
 		hr = g_pd3dDevice->CreateSamplerState(&sampDesc, &g_pSamplerLinear);
-		if (FAILED(hr))
+		if (FAILED(hr)) {
+			std::wstring errMsg = GetLastErrorAsString();
+			::MessageBox(nullptr,
+				errMsg.c_str(), L"CreateSamplerState Failed", MB_OK);
 			return hr;
+		}
 	}
 
 	// Initialize the world matrices

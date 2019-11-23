@@ -114,6 +114,27 @@ struct DDS_HEADER_DXT10
 
 #pragma pack(pop)
 
+typedef HANDLE (WINAPI * PFN_CreateFile2)(
+	LPCWSTR                           lpFileName,
+	DWORD                             dwDesiredAccess,
+	DWORD                             dwShareMode,
+	DWORD                             dwCreationDisposition,
+	LPCREATEFILE2_EXTENDED_PARAMETERS pCreateExParams
+);
+static PFN_CreateFile2 pfn_CreateFile2 = nullptr;
+void LoadExpectedFunctions()
+{
+	static bool loaded = false;
+	if (!loaded) {
+		HMODULE hLib = ::LoadLibrary(L"Kernel32.dll");
+		if (hLib) {
+			pfn_CreateFile2 = (PFN_CreateFile2)::GetProcAddress(hLib, "CreateFile2");
+		}
+		::FreeLibrary(hLib);
+		loaded = true;
+	}
+}
+
 //--------------------------------------------------------------------------------------
 namespace
 {
@@ -148,22 +169,25 @@ namespace
         }
 
         // open the file
-#if (_WIN32_WINNT >= _WIN32_WINNT_WIN8)
-        ScopedHandle hFile(safe_handle(CreateFile2(fileName,
-            GENERIC_READ,
-            FILE_SHARE_READ,
-            OPEN_EXISTING,
-            nullptr)));
-#else
-        ScopedHandle hFile(safe_handle(CreateFileW(fileName,
-            GENERIC_READ,
-            FILE_SHARE_READ,
-            nullptr,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr)));
-#endif
+		HANDLE fileHandle;
+		if (pfn_CreateFile2) {
+			fileHandle = safe_handle(pfn_CreateFile2(fileName,
+				GENERIC_READ,
+				FILE_SHARE_READ,
+				OPEN_EXISTING,
+				nullptr));
+		}
+		else {
+			fileHandle = safe_handle(CreateFileW(fileName,
+				GENERIC_READ,
+				FILE_SHARE_READ,
+				nullptr,
+				OPEN_EXISTING,
+				FILE_ATTRIBUTE_NORMAL,
+				nullptr));
+		}
 
+		ScopedHandle hFile(fileHandle);
         if (!hFile)
         {
             return HRESULT_FROM_WIN32(GetLastError());

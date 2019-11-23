@@ -9,6 +9,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 {
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
+	//::MessageBox(NULL, L"Start", L"WinMain", MB_ICONINFORMATION);
 
 	GDIBaseWindow* window = new GDIBaseWindow();
 	RECT rc = { 0,0,800,600 };
@@ -21,6 +22,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 	window->CenterWindow();
 	window->ShowWindow();
 	CWindowWnd::MessageLoop();
+	//::MessageBox(NULL, L"End", L"WinMain", MB_ICONINFORMATION);
 
 	return 0;
 }
