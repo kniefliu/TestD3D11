@@ -1,6 +1,7 @@
 #include <Windows.h>
 
 #include "GDIBaseWindow.h"
+#include "WndShadow.h"
 
 int APIENTRY WinMain(HINSTANCE hInstance,
 	HINSTANCE hPrevInstance,
@@ -10,6 +11,7 @@ int APIENTRY WinMain(HINSTANCE hInstance,
 	UNREFERENCED_PARAMETER(hPrevInstance);
 	UNREFERENCED_PARAMETER(lpCmdLine);
 	//::MessageBox(NULL, L"Start", L"WinMain", MB_ICONINFORMATION);
+	CWndShadow::Initialize(hInstance);
 
 	GDIBaseWindow* window = new GDIBaseWindow();
 	RECT rc = { 0,0,800,600 };

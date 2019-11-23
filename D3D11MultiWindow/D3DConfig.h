@@ -7,5 +7,6 @@
 #define USE_D3D11_FLIP 0
 
 #define GDIBASE_HAS_CHILD 1
+#define GDIBASE_HAS_SHADOW 0
 #define D3D11BASE_HAS_CHILD 0
 

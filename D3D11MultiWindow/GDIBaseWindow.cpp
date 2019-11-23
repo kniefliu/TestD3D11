@@ -11,6 +11,7 @@ const int kDefaultCaptionHeight = 20;
 GDIBaseWindow::GDIBaseWindow()
 	: m_pChildWindow(nullptr)
 	, m_hbrushFill(nullptr)
+	, m_pShadowWindow(nullptr)
 {
 	m_rcSizeBox.left = kDefaultBorderSize;
 	m_rcSizeBox.right = kDefaultBorderSize;
@@ -24,7 +25,10 @@ GDIBaseWindow::GDIBaseWindow()
 }
 GDIBaseWindow::~GDIBaseWindow()
 {
-
+	if (m_pShadowWindow) {
+		delete m_pShadowWindow;
+		m_pShadowWindow = nullptr;
+	}
 }
 
 LPCTSTR GDIBaseWindow::GetWindowClassName() const
@@ -103,7 +107,11 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 	case WM_CREATE:
 	{
 		m_hbrushFill = (HBRUSH)::GetStockObject(LTGRAY_BRUSH);
-
+		LOGBRUSH logBrush;
+		logBrush.lbColor = RGB(0xee, 0xee, 0xee);
+		logBrush.lbHatch = 0;
+		logBrush.lbStyle = BS_SOLID;
+		m_hbrushBackground = ::CreateBrushIndirect(&logBrush);
 		LONG styleValue = ::GetWindowLong(*this, GWL_STYLE);
 		styleValue &= ~WS_CAPTION;
 		styleValue &= ~WS_BORDER;
@@ -130,7 +138,12 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		}
 #endif
 #endif
-		
+#if GDIBASE_HAS_SHADOW
+		m_pShadowWindow = new CWndShadow();
+		m_pShadowWindow->SetColor(RGB(0xff, 0x00, 0x00));
+		m_pShadowWindow->SetSize(10);
+		m_pShadowWindow->Create(m_hWnd);
+#endif
 		return 0;
 	}
 	case WM_RESIZE:
@@ -164,8 +177,7 @@ LRESULT GDIBaseWindow::HandleMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
 		HDC hdc = (HDC)wParam;
 		RECT client_rc;
 		::GetClientRect(m_hWnd, &client_rc);
-		HBRUSH hbrush = (HBRUSH)::GetStockObject(WHITE_BRUSH);
-		::FillRect(hdc, &client_rc, hbrush);
+		::FillRect(hdc, &client_rc, m_hbrushBackground);
 		return 1;
 	}
 	case WM_SIZE:

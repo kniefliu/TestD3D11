@@ -3,6 +3,7 @@
 #include "WindowWnd.h"
 #include "D3DConfig.h"
 #include "D3D11BaseWindow.h"
+#include "WndShadow.h"
 
 class GDIBaseWindow : public CWindowWnd {
 public:
@@ -24,7 +25,9 @@ protected:
 #else
 	D3D11BaseWindow* m_pChildWindow;
 #endif
+	CWndShadow* m_pShadowWindow;
 	HBRUSH m_hbrushFill;
+	HBRUSH m_hbrushBackground;
 	RECT m_rcCaption;
 	RECT m_rcSizeBox;
 };
